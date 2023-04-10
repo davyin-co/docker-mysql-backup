@@ -1,2 +1,3 @@
 backups
-docker-compose.yml
+docker-compose*.yml
+backup*

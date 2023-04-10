@@ -31,4 +31,4 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         file: Dockerfile
-        tags: davyinsa/mysql-backup
+        tags: davyinsa/mysql-backup-rotate
