@@ -15,14 +15,14 @@ services:
     #image: tiredofit/db-backup
     image: davyinsa/mysql-backup-rotate
     volumes:
-      - ./backup-interval:/backup
+      - ./backup:/backup
     #restart: always
     environment:
      ## 备份间隔时间，以分为单位,1440就是每天一个备份。
-     - DB_DUMP_FREQ=1440
+      - DB_DUMP_FREQ=1440
      ## 如下配置，保留最近7天（每天一个备份），最近4周（每周一个备份），最近3个月的备份（每个月一个备份）
-     - ROTATE_OPTIONS=--daily=7 --weekly=4 --monthly=3 --prefer-recent
-      - ROTATE_OPTIONS=--minutely=10 --hourly=5 --daily=7 --weekly=4 --monthly=3 --prefer-recent
+      - ROTATE_OPTIONS=--daily=7 --weekly=4 --monthly=3 --prefer-recent
+      #- ROTATE_OPTIONS=--minutely=10 --hourly=5 --daily=7 --weekly=4 --monthly=3 --prefer-recent
       - CONTAINER_ENABLE_MONITORING=FALSE
       - TIMEZONE=Asia/Shanghai
       - BACKUP_LOCATION=FILESYSTEM
@@ -53,7 +53,7 @@ services:
     container_name: db-backup-rotate-once
     image: davyinsa/mysql-backup-rotate
     volumes:
-      - ./backup-once:/backup
+      - ./backup:/backup
     #restart: always
     command:
       - /bin/bash
@@ -70,7 +70,7 @@ services:
       - DB_TYPE=mysql
       - DB_DUMP_TARGET=/backup
       - DB_HOST=mariadb
-      - DB_NAME=example
+      - DB_NAME=ALL
       - DB_NAME_EXCLUDE=mysql
       - DB_USER=root
       - DB_PASS=password
