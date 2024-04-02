@@ -17,12 +17,8 @@ jobs:
     strategy:
       matrix:
         version:
-          - 3
-          - 3.11.1
-          - 3-3.12.2
-          - 4.x
-          - 4.0.35
-          - latest
+          - 3.10.5
+          - 3.9.12
     steps:
     - uses: actions/checkout@v2
     -
@@ -37,15 +33,16 @@ jobs:
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
     -
-      name: Build and push latest
-      id: docker_build
+      name: Build and push 3.x
+      id: docker_build_3
       uses: docker/build-push-action@v2
       with:
         push: true
         context: .
         platforms: linux/amd64,linux/arm64
-        file: Dockerfile
+        file: Dockerfile-3
         tags: davyinsa/mysql-backup-rotate${{ matrix.version }}
         build-args: |
           VERSION=${{ matrix.version }}
