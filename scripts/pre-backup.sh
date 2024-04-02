@@ -7,4 +7,4 @@ export PATH="$PATH:/root/.local/bin"
 # #### $3=DB_NAME (Name of Database backed up
 # #### $4=BACKUP START TIME (Seconds since Epoch)ff
 # #### $5=BACKUP FILENAME (Filename)
-mkdir -p ${DB_DUMP_TARGET}/$3
+mkdir -p ${DEFAULT_FILESYSTEM_PATH}/$3

@@ -47,40 +47,42 @@ services:
 
 docker-compose.yml, 一次性备份（依赖于外部的任务调度系统执行周期性备份任务，不是容器自身执行。例如kubernetes的cronjob）
 ```yaml
-version: "3"
 services:
-  db-backup-rotate-once:
-    container_name: db-backup-rotate-once
-    image: davyinsa/mysql-backup-rotate
+  db-backup-rotate-freq-manual:
+    container_name: db-backup-rotate-freq-manual
+    #image: tiredofit/db-backup
+    # image: davyinsa/mysql-backup-rotate 
+    image: backup
     volumes:
-      - ./backup:/backup
+      - ./backup-interval-manual:/backup
     #restart: always
-    command:
-      - /bin/bash
-      - /etc/services.available/10-db-backup/run
-      - NOW
+    command: [backup-now]
     environment:
       - MODE=MANUAL
-      - MANUAL_RUN_FOREVER=FALSE
       - CONTAINER_ENABLE_SCHEDULING=FALSE
-      - ROTATE_OPTIONS=--minutely=5 --hourly=3 --daily=7 --weekly=4 --monthly=3 --prefer-recent
       - CONTAINER_ENABLE_MONITORING=FALSE
-      - TIMEZONE=Asia/Shanghai
-      - BACKUP_LOCATION=FILESYSTEM
+      - MANUAL_RUN_FOREVER=FALSE
+      - ROTATE_OPTIONS=--daily=4 --weekly=4 --monthly=3 --prefer-recent
+      - DEFAULT_BACKUP_LOCATION=FILESYSTEM
+      - DEFAULT_FILESYSTEM_PATH=/backup
       - DB_TYPE=mysql
-      - DB_DUMP_TARGET=/backup
       - DB_HOST=mariadb
-      - DB_NAME=ALL
+      - DB_NAME=yanfeng_uat,bjchy_intl
       - DB_NAME_EXCLUDE=mysql
       - DB_USER=root
       - DB_PASS=password
       - DB_CLEANUP_TIME=FALSE
       - ENABLE_CHECKSUM=FALSE
-      - COMPRESSION=GZ
-      - SPLIT_DB=TRUE
-      - SIZE_VALUE=megabytes
       - CREATE_LATEST_SYMLINK=FALSE
+      - DEFAULT_COMPRESSION=GZ
+      - DEFAULT_SPLIT_DB=TRUE
+      - SIZE_VALUE=megabytes
       - ENABLE_SMTP=FALSE
       - ENABLE_ZABBIX=FALSE
       - ENABLE_LOGROTATE=FALSE
+
+networks:
+  default:
+    name: proxy
+    external: true
 ```

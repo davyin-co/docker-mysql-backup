@@ -15,5 +15,5 @@ export PATH="$PATH:/root/.local/bin"
 
 ## mv each db to own dir, so that rotate-backups can works good on each files.
 
-mv ${DB_DUMP_TARGET}/$8 ${DB_DUMP_TARGET}/$4
-/usr/bin/rotate-backups $ROTATE_OPTIONS ${DB_DUMP_TARGET}/$4
+mv ${DEFAULT_FILESYSTEM_PATH}/$8 ${DEFAULT_FILESYSTEM_PATH}/$4
+rotate-backups $ROTATE_OPTIONS ${DEFAULT_FILESYSTEM_PATH}/$4
