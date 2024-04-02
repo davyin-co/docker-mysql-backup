@@ -1,4 +1,5 @@
-FROM tiredofit/db-backup
+ARG VERSION
+FROM tiredofit/db-backup:${VERSION}
 ENV ROTATE_OPTIONS="--daily=7 --weekly=4 --monthly=3 --prefer-recent"
 #ENV POST_SCRIPT=/assets/scripts/post/rotate-dbbackups.sh
 ENV CONTAINER_ENABLE_MONITORING=FALSE
