@@ -51,8 +51,7 @@ services:
   db-backup-rotate-freq-manual:
     container_name: db-backup-rotate-freq-manual
     #image: tiredofit/db-backup
-    # image: davyinsa/mysql-backup-rotate 
-    image: backup
+    image: davyinsa/mysql-backup-rotate
     volumes:
       - ./backup-interval-manual:/backup
     #restart: always
