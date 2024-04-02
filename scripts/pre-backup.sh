@@ -1,4 +1,5 @@
 #!/bin/bash
+export PATH="$PATH:/root/.local/bin"
 
 # #### Example Pre Script
 # #### $1=DB_TYPE (Type of Backup)

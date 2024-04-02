@@ -14,12 +14,14 @@ ENV ENABLE_SMTP=FALSE
 ENV CREATE_LATEST_SYMLINK=FALSE
 ENV ENABLE_ZABBIX=FALSE
 ENV ENABLE_LOGROTATE=FALSE
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin
 
 COPY scripts/rotate-dbbackups.sh /assets/scripts/post/
 COPY scripts/pre-backup.sh /assets/scripts/pre/
 
-RUN apk add --no-cache py3-pip && \ 
-    pip3 install --upgrade pip && \ 
-    pip3 install rotate-backups && \
+## https://www.yaolong.net/article/pip-externally-managed-environment/
+RUN apk add --no-cache pipx && \ 
+    pipx install rotate-backups && \
     chmod +x /assets/scripts/post/rotate-dbbackups.sh /assets/scripts/pre/pre-backup.sh && \
+
     echo "$TIMEZONE" | tee /etc/timezone
