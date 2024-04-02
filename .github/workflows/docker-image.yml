@@ -63,4 +63,4 @@ jobs:
         file: Dockerfile-3
         tags: davyinsa/mysql-backup-rotate
         build-args: |
-          VERSION=${{ matrix.version_3 }}
+          VERSION=${{ matrix.version_py3 }}
