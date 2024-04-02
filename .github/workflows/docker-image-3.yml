@@ -43,6 +43,6 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         file: Dockerfile-3
-        tags: davyinsa/mysql-backup-rotate${{ matrix.version }}
+        tags: davyinsa/mysql-backup-rotate:${{ matrix.version }}
         build-args: |
           VERSION=${{ matrix.version }}
