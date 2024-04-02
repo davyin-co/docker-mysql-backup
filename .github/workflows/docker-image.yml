@@ -5,6 +5,12 @@ on:
     branches: [ master, main ]
   schedule:
     - cron:  '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      name:
+        description: 'Reason'
+        required: true
+        default: 'Why??'
 jobs:
   build:
     runs-on: ubuntu-latest

@@ -23,4 +23,3 @@ RUN apk add --no-cache py3-pip && \
     pip3 install rotate-backups && \
     chmod +x /assets/scripts/post/rotate-dbbackups.sh /assets/scripts/pre/pre-backup.sh && \
     echo "$TIMEZONE" | tee /etc/timezone
-
