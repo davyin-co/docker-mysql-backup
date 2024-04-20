@@ -14,6 +14,6 @@ export PATH="$PATH:/root/.local/bin"
 # # #### (0=HASH (If CHECKSUM enabled)))}])
 
 ## mv each db to own dir, so that rotate-backups can works good on each files.
-
+. /venv/bin/activate
 mv ${DEFAULT_FILESYSTEM_PATH}/$8 ${DEFAULT_FILESYSTEM_PATH}/$4
 rotate-backups $ROTATE_OPTIONS ${DEFAULT_FILESYSTEM_PATH}/$4

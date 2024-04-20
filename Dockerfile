@@ -21,11 +21,11 @@ COPY scripts/rotate-dbbackups.sh /assets/scripts/post/
 COPY scripts/pre-backup.sh /assets/scripts/pre/
 
 ## https://www.yaolong.net/article/pip-externally-managed-environment/
-RUN apk add tzdata && \
+RUN apk add --no-cache tzdata && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     apk del tzdata && \
-    apk add --no-cache pipx && \ 
-    pipx install rotate-backups && \
+    python3 -m venv /venv && \
+    . /venv/bin/activate && \ 
+    pip install rotate-backups && \
     chmod +x /assets/scripts/post/rotate-dbbackups.sh /assets/scripts/pre/pre-backup.sh && \
-
     echo "$TIMEZONE" | tee /etc/timezone

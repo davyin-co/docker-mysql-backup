@@ -1,11 +1,16 @@
 # 简介
+
 基于docker的MySQL数据库备份程序, 支持高级备份策略设置.
-该镜像包含： 
-* [databacker mysql-backup](https://github.com/databacker/mysql-backup)
+该镜像包含：
+
+* [databacker](https://github.com/tiredofit/docker-db-backup)
 * [rotate backups](https://rotate-backups.readthedocs.io/en/latest/)
 * Inspired by [Auto purge of older backups](https://github.com/databacker/mysql-backup/issues/9)
 
 ## Usage:
+
+!!!由于tiredofit/db-backup 4.x改动较大，尚未经过完整测试验证与适配，暂时使用3-3.12.2!!!
+
 docker-compose.yml 例子，周期性备份:
 ```yaml
 version: "3"
@@ -13,7 +18,7 @@ services:
   db-backup-rotate-freq:
     container_name: db-backup-rotate-freq
     #image: tiredofit/db-backup
-    image: davyinsa/mysql-backup-rotate
+    image: davyinsa/mysql-backup-rotate:3-3.12.2
     volumes:
       - ./backup:/backup
     #restart: always
@@ -46,10 +51,11 @@ services:
 ```
 
 docker-compose.yml, 一次性备份（依赖于外部的任务调度系统执行周期性备份任务，不是容器自身执行。例如kubernetes的cronjob）
+
 ```yaml
 services:
   db-backup-rotate-freq-manual:
-    container_name: db-backup-rotate-freq-manual
+    container_name: db-backup-rotate-freq-manual:3-3.12.2
     #image: tiredofit/db-backup
     image: davyinsa/mysql-backup-rotate
     volumes:
