@@ -12,19 +12,21 @@
 !!!由于tiredofit/db-backup 4.x改动较大，尚未经过完整测试验证与适配，暂时使用3-3.12.2!!!
 
 docker-compose.yml 例子，周期性备份:
+
 ```yaml
-version: "3"
 services:
   db-backup-rotate-freq:
     container_name: db-backup-rotate-freq
     #image: tiredofit/db-backup
-    image: davyinsa/mysql-backup-rotate:3-3.12.2
+    image: registry.cn-hangzhou.aliyuncs.com/davyin/mysql-backup-rotate:4.1.17
     volumes:
       - ./backup:/backup
     #restart: always
     environment:
      ## 备份间隔时间，以分为单位,1440就是每天一个备份。
       - DB_DUMP_FREQ=1440
+      ## mariadb有自己的client，用这个作区分。如果是mysql，改为mysql
+      - DEFAULT_MYSQL_CLIENT=mariadb
      ## 如下配置，保留最近7天（每天一个备份），最近4周（每周一个备份），最近3个月的备份（每个月一个备份）
       - ROTATE_OPTIONS=--daily=7 --weekly=4 --monthly=3 --prefer-recent
       #- ROTATE_OPTIONS=--minutely=10 --hourly=5 --daily=7 --weekly=4 --monthly=3 --prefer-recent
@@ -47,7 +49,7 @@ services:
       - ENABLE_SMTP=FALSE
       - ENABLE_ZABBIX=FALSE
       - ENABLE_LOGROTATE=FALSE
-     
+   
 ```
 
 docker-compose.yml, 一次性备份（依赖于外部的任务调度系统执行周期性备份任务，不是容器自身执行。例如kubernetes的cronjob）
@@ -55,14 +57,15 @@ docker-compose.yml, 一次性备份（依赖于外部的任务调度系统执行
 ```yaml
 services:
   db-backup-rotate-freq-manual:
-    container_name: db-backup-rotate-freq-manual:3-3.12.2
+    container_name: db-backup-rotate-freq-manual
     #image: tiredofit/db-backup
-    image: davyinsa/mysql-backup-rotate
+    registry.cn-hangzhou.aliyuncs.com/davyin/mysql-backup-rotate:4.1.17
     volumes:
       - ./backup-interval-manual:/backup
     #restart: always
     command: [backup-now]
     environment:
+      - DEFAULT_MYSQL_CLIENT=mariadb
       - MODE=MANUAL
       - CONTAINER_ENABLE_SCHEDULING=FALSE
       - CONTAINER_ENABLE_MONITORING=FALSE
