@@ -1,133 +1,113 @@
 #!/usr/bin/env python3
 """
-apply-strip-cache-patch.py — idempotently injects three code blocks into
-the upstream /assets/functions/10-db-backup at image build time:
+apply-strip-cache-patch.py — injects three code blocks into upstream
+/assets/functions/10-db-backup at build time (4.x line only).
 
-  A. Register STRIP_CACHE_DATA / STRIP_CACHE_TABLES with the upstream
-     per-instance variable transform (so DB##_/DB_/DEFAULT_ env vars funnel
-     into the internal backup_job_strip_cache_* variables, the same way
-     EXTRA_BACKUP_OPTS does today).
+If the required anchors aren't found (old image version), exits 0
+without modifying the file — the build continues, just without the
+strip-cache feature for that image tag.
 
-  B. Source /assets/strip-cache-data.sh before mysqldump and rewrite the
-     ${backup_job_extra_backup_opts} token in the mysqldump command line
-     to ${extra_backup_opts}. Equivalent of nfrastack/container-db-backup
-     PR #477 ({db} placeholder substitution).
-
-  C. After PIPESTATUS exit_code, prepend the schema-only prefix file
-     (set by strip-cache-data.sh when STRIP_CACHE_DATA=TRUE) to the main
-     dump so CREATE TABLE statements for stripped tables survive while
-     their INSERT statements are dropped.
-
-Each block is wrapped in a sentinel comment pair so re-runs are no-ops.
+Idempotent: re-runs bail out at the first sentinel marker.
 """
 import re
 import sys
 
 TARGET = "/assets/functions/10-db-backup"
-MARKERS = {
-    "A": ("# >>> STRIP_CACHE_DATA_REGISTER_BEGIN", "# <<< STRIP_CACHE_DATA_REGISTER_END"),
-    "B": ("# >>> STRIP_CACHE_DATA_INJECTION_BEGIN", "# <<< STRIP_CACHE_DATA_INJECTION_END"),
-    "C": ("# >>> STRIP_CACHE_DATA_POSTDUMP_BEGIN", "# <<< STRIP_CACHE_DATA_POSTDUMP_END"),
-}
-
-
-def find(src, regex, desc):
-    """Locate the regex in src; abort the script if missing."""
-    m = regex.search(src)
-    if not m:
-        print(f"apply-strip-cache-patch: anchor '{desc}' not found in {TARGET}",
-              file=sys.stderr)
-        sys.exit(1)
-    return m
+MARKERS = (
+    ("# >>> STRIP_CACHE_DATA_REGISTER_BEGIN", "# <<< STRIP_CACHE_DATA_REGISTER_END"),
+    ("# >>> STRIP_CACHE_DATA_INJECTION_BEGIN", "# <<< STRIP_CACHE_DATA_INJECTION_END"),
+    ("# >>> STRIP_CACHE_DATA_POSTDUMP_BEGIN", "# <<< STRIP_CACHE_DATA_POSTDUMP_END"),
+)
 
 
 def main() -> int:
     with open(TARGET, encoding="utf-8") as f:
         src = f.read()
 
-    # Bail out if any previous run left a sentinel.
-    for begin, _ in MARKERS.values():
+    for begin, _ in MARKERS:
         if begin in src:
-            print(f"apply-strip-cache-patch: '{begin}' already present, skipping",
-                  flush=True)
+            print(f"apply-strip-cache-patch: '{begin}' present, skipping", flush=True)
             return 0
 
-    a_begin, a_end = MARKERS["A"]
-    # ---- A: register STRIP_CACHE_DATA / STRIP_CACHE_TABLES transforms ----
-    em = find(
-        src,
-        re.compile(
-            r"^(?P<indent>[ \t]+)transform_backup_instance_variable "
-            r"\"\$\{backup_instance_number\}\" EXTRA_BACKUP_OPTS "
-            r"backup_job_extra_backup_opts\b",
-            re.MULTILINE,
-        ),
-        desc="EXTRA_BACKUP_OPTS transform call",
+    # ---- A: register STRIP_CACHE_DATA / STRIP_CACHE_TABLES ---------------
+    m = re.search(
+        r"^(?P<i>[ \t]+)transform_backup_instance_variable "
+        r"\"\$\{backup_instance_number\}\" EXTRA_DUMP_OPTS "
+        r"backup_job_extra_dump_opts\b",
+        src, re.MULTILINE,
     )
-    ai = em.group("indent")
+    if not m:
+        print("apply-strip-cache-patch: EXTRA_DUMP_OPTS anchor not found "
+              "(old image), skipping", flush=True)
+        return 0
+    ai = m.group("i")
+    a_begin, a_end = MARKERS[0]
     src = (
-        src[:em.end()]
-        + f"\n{ai}{a_begin}\n"
+        src[: m.end()] + f"\n{ai}{a_begin}\n"
         + f'{ai}transform_backup_instance_variable '
           f'"${{backup_instance_number}}" STRIP_CACHE_DATA '
           f"backup_job_strip_cache_data\n"
         + f'{ai}transform_backup_instance_variable '
           f'"${{backup_instance_number}}" STRIP_CACHE_TABLES '
           f"backup_job_strip_cache_tables\n"
-        + f"{ai}{a_end}\n"
-        + src[em.end():]
+        + f"{ai}{a_end}\n" + src[m.end():]
     )
 
-    b_begin, b_end = MARKERS["B"]
-    # ---- B: source the helper + rewrite mysqldump opts token ------------
-    # Match the entire mysqldump invocation line (anchored at `dump`,
-    # extending to the line end) so we can rewrite the trailing
-    # ${backup_job_extra_backup_opts} token.
-    mysqldump_re = re.compile(
-        r"^(?P<indent>[ \t]+)run_as_user \$\{play_fair\} "
-        r"\$\{_mysql_prefix\}\$\{_mysql_bin_prefix\}dump[^\n]*",
-        re.MULTILINE,
+    # ---- B: source helper + rewrite mysqldump opts token -----------------
+    m = re.search(
+        r"^(?P<i>[ \t]+)run_as_user \$\{play_fair\} mysqldump[^\n]*",
+        src, re.MULTILINE,
     )
-    bm = find(src, mysqldump_re, desc="mysqldump invocation")
-    bi = bm.group("indent")
-    # First mysqldump line gets: sentinel block + the same line with the
-    # ${backup_job_extra_backup_opts} token rewritten to ${extra_backup_opts}.
-    patched = bm.group(0).replace(
-        "${backup_job_extra_backup_opts}", "${extra_backup_opts}"
+    if not m:
+        print("apply-strip-cache-patch: mysqldump anchor not found, skipping",
+              flush=True)
+        return 0
+    bi = m.group("i")
+    b_begin, b_end = MARKERS[1]
+    patched_line = m.group(0).replace(
+        "${backup_job_extra_dump_opts}", "${extra_backup_opts}"
     )
+
     src = (
-        src[:bm.start()]
+        src[: m.start()]
         + f"{bi}{b_begin}\n{bi}source /assets/strip-cache-data.sh\n{bi}{b_end}\n"
-        + patched
-        + src[bm.end():]
+        + patched_line + src[m.end():]
     )
-    # Any OTHER mysqldump line (the combined --databases branch) just gets
-    # the token rewrite, no extra source line.
-    src = mysqldump_re.sub(
+    # Rewrite any OTHER mysqldump lines (combined --databases branch).
+    src = re.sub(
+        r"^(?P<i>[ \t]+)run_as_user \$\{play_fair\} mysqldump[^\n]*",
         lambda mm: mm.group(0).replace(
-            "${backup_job_extra_backup_opts}", "${extra_backup_opts}"
+            "${backup_job_extra_dump_opts}", "${extra_backup_opts}"
         ),
-        src,
+        src, flags=re.MULTILINE,
     )
 
-    c_begin, c_end = MARKERS["C"]
-    # ---- C: prepend schema-only dump to the main dump --------------------
-    cm = find(
-        src,
-        re.compile(
-            r"^(?P<indent>[ \t]+)exit_code=\$\(\(PIPESTATUS\[0\] \+ "
-            r"PIPESTATUS\[1\] \+ PIPESTATUS\[2\]\)\)",
-            re.MULTILINE,
-        ),
-        desc="PIPESTATUS exit_code line",
+    # ---- C: prepend schema-only dump after exit_code ---------------------
+    # Re-find the *first* mysqldump line in the patched src (avoids offset
+    # arithmetic from the injection that was inserted before it).
+    first_after = re.search(
+        r"run_as_user \$\{play_fair\} mysqldump[^\n]*",
+        src, re.MULTILINE,
     )
-    ci = cm.group("indent")
+    if not first_after:
+        print("apply-strip-cache-patch: mysqldump line not found after "
+              "patch, skipping", flush=True)
+        return 0
+    rest = src[first_after.end():]
+    exit_m = re.search(r"^(?P<i>[ \t]+)exit_code=", rest, re.MULTILINE)
+    if not exit_m:
+        print("apply-strip-cache-patch: exit_code line after mysqldump not "
+              "found, skipping", flush=True)
+        return 0
+    ci = exit_m.group("i")
+    abs_end = first_after.end() + exit_m.end()
+    c_begin, c_end = MARKERS[2]
     src = (
-        src[:cm.end()]
+        src[:abs_end]
         + f"\n{ci}{c_begin}\n"
         + f'{ci}if [ -n "${{_STRIP_SCHEMA_FILE:-}}" ] && '
           f'[ -f "${{_STRIP_SCHEMA_FILE}}" ] ; then\n'
-        + f'{ci}    _main_dump="${{temporary_directory}}/${{backup_job_filename}}"\n'
+        + f'{ci}    _main_dump="${{TEMP_PATH}}/${{backup_job_filename}}"\n'
         + f'{ci}    if [ -f "${{_main_dump}}" ] ; then\n'
         + f'{ci}        cat "${{_STRIP_SCHEMA_FILE}}" "${{_main_dump}}" '
           f'> "${{_main_dump}}.combined"\n'
@@ -137,7 +117,7 @@ def main() -> int:
         + f'{ci}    unset _STRIP_SCHEMA_FILE\n'
         + f'{ci}fi\n'
         + f"{ci}{c_end}\n"
-        + src[cm.end():]
+        + src[abs_end:]
     )
 
     with open(TARGET, "w", encoding="utf-8") as f:
