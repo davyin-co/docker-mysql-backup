@@ -154,32 +154,65 @@ environment:
 
 ### 工作原理（速览）
 
-1. 镜像构建时，`assets/apply-strip-cache-patch.py` 向上游
-   `/assets/functions/10-db-backup` 注入三处代码块：
-   - 在 `bootstrap_init` 里给 `transform_backup_instance_variable` 注册
+剥离在镜像自带的 **post-hook `rotate-dbbackups.sh`** 里完成（在 mysqldump
+写完 `.sql.gz` 后做一次流式过滤，再 move+rotate）。这条路不再依赖
+`assets/apply-strip-cache-patch.py` 向上游 `/assets/functions/10-db-backup`
+注入代码——因为 4.1.100 上游把 `EXTRA_DUMP_OPTS` 改名为 `EXTRA_BACKUP_OPTS`，且
+裸 `mysqldump` 改成了 `${_mysql_prefix}${_mysql_bin_prefix}dump`
+（即 `mariadb-dump` / `mysql-dump`），导致 patcher 的两个锚点都失效，patcher
+静默 `return 0`、`DEFAULT_STRIP_CACHE_*` env vars 从未被读取。
+
+#### 当前实现（post-hook）
+
+1. 每次 `pre_dbbackup "${db}"` 调用 `/assets/scripts/pre/pre-backup.sh`，只为后续
+   的过滤打一行 `[pre-backup] strip-cache ENABLED for db='X' tables='…'` 日志
+   （不修改 mysqldump）。
+2. 每次 `post_dbbackup "${db}"` 调用 `/assets/scripts/post/rotate-dbbackups.sh`：
+   - 解析 `_strip_enable`（`DB01_STRIP_CACHE_DATA → STRIP_CACHE_DATA → DEFAULT_STRIP_CACHE_DATA → FALSE`），
+     `_strip_tables` 同款链路，默认
+     `cache_%,sessions,watchdog,queue,batch,flood,http_client_log`。
+   - 把列表展开成 `grep -E` 的多分支正则（`foo%` → `^INSERT INTO \`foo[^\`]*\``、
+     `bar` → `^INSERT INTO \`bar\``），用
+     `gunzip -c src | grep -v -E PATTERN | gzip > src.strip.tmp && mv` 替换源文件。
+   - 然后保持原有的 `mv ${DEFAULT_FILESYSTEM_PATH}/$8 ${DEFAULT_FILESYSTEM_PATH}/$4` +
+     `rotate-backups $ROTATE_OPTIONS` 行为。
+3. 失败保护：filter 链路任何一步出错时打印 `WARN: strip-cache failed … leaving
+   dump untouched` 并 `rm -f` 临时文件，不影响最终 dump 完整性。
+
+> `assets/apply-strip-cache-patch.py` + `assets/strip-cache-data.sh` 仍保留在镜像
+> 里作为 legacy——一旦上游某天重新引入 Patcher 可识别的锚点，注入版本仍然有效。
+> 当前 4.1.100 build 上 patcher 会 silent no-op，剥离完全由 post-hook 负责。
+
+#### 旧实现（已废弃，仅记录）
+
+1. 镜像构建时，`apply-strip-cache-patch.py` 向上游 `10-db-backup` 注入三处代码：
+   - `bootstrap_init` 里给 `transform_backup_instance_variable` 注册
      `STRIP_CACHE_DATA` / `STRIP_CACHE_TABLES`，让 `DB##_` / `DEFAULT_` 前缀
-     自动解析（与 `EXTRA_BACKUP_OPTS` 同款机制）。
-   - 在 `backup_mysql()` 调用 mysqldump **之前** `source` 我们的
-     `/assets/strip-cache-data.sh`。
+     自动解析。
+   - 在 `backup_mysql()` 调用 mysqldump **之前** `source` `strip-cache-data.sh`。
    - 在 mysqldump **之后** 把 schema-only 前缀文件 prepend 到主 dump 文件。
-2. `/assets/strip-cache-data.sh` 在每次备份运行时执行：
-   - 把 `EXTRA_BACKUP_OPTS` 里的 `{db}` 替换成当前库名。
-   - 通过 `information_schema` 查询该库匹配 `STRIP_CACHE_TABLES` 的实际表名。
-   - 给每个匹配表追加 `--ignore-table=<db>.<table>`，让 mysqldump 跳过它们。
-   - 同时 `mysqldump --no-data` 把这些表的 schema dump 到临时文件，供后续 prepend。
-3. dump 完成后，post-mysqldump 注入块把 schema-only 文件 prepend 到主 dump 前。
+2. `strip-cache-data.sh` 在每次备份时通过 `information_schema` 查表名，追加
+   `--ignore-table=<db>.<table>` 让 mysqldump 跳过，并 dump 一份 schema-only 给 prepend。
+3. dump 完成后 post-mysqldump 注入块把 schema-only 文件 prepend 到主 dump 前。
+
+—— 这套在 4.x 早期分支可用，但与 `tiredofit/db-backup:4.1.100` 不兼容，
+**所有此前的 4.x 备份都漏剥了 cache_* / watchdog / sessions**；切换到 post-hook
+后立即生效。
 
 ### 排错
 
 ```bash
-# 确认补丁是否注入
-docker run --rm davyinsa/mysql-backup-rotate:4.1.17 \
-    grep -E 'STRIP_CACHE_DATA_(REGISTER|INJECTION|POSTDUMP)_BEGIN' \
-    /assets/functions/10-db-backup
+# 1. 确认镜像里有新版 post-hook（看注释头部的 phase signature）
+docker run --rm davyinsa/mysql-backup-rotate:4.1.100 \
+    head -20 /assets/scripts/post/rotate-dbbackups.sh
 
-# 确认备份里 cache_* 没有 INSERT，但有 CREATE TABLE
-zcat /backup/<db_name>/mysql_*.sql.gz | grep -c '^INSERT INTO `cache_'
-#   期望：0
-zcat /backup/<db_name>/mysql_*.sql.gz | grep -c '^CREATE TABLE `cache_'
-#   期望：≥1
+# 2. 实际验：找一台 Drupal 站点最新一次备份，看 cache_* INSERT 有没有剥
+gunzip -c /backup/<db>/mariadb_<db>_*.sql.gz > /tmp/dump.sql
+echo "cache_* INSERT 行数 (期望 0) : $(grep -c '^INSERT INTO `cache_' /tmp/dump.sql)"
+echo "cache_* CREATE 表数 (期望 >=1): $(grep -c '^CREATE TABLE `cache_' /tmp/dump.sql)"
+echo "watchdog INSERT 行数 (期望 0) : $(grep -c '^INSERT INTO `watchdog`' /tmp/dump.sql)"
+
+# 3. 看 post-hook 失败告警
+docker logs db-backup-rotate-freq 2>&1 | grep -E 'strip-cache|WARN' | tail -20
+#   期望：下一次轮转后能看到 "[pre-backup] strip-cache ENABLED for db='…' tables='…'"
 ```
