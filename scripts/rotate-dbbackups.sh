@@ -42,32 +42,70 @@ _strip_tables="${DB01_STRIP_CACHE_TABLES:-${STRIP_CACHE_TABLES:-${DEFAULT_STRIP_
 if [ "${_strip_enable}" = "TRUE" ] && [ -n "${_strip_tables}" ] ; then
     _src="${DEFAULT_FILESYSTEM_PATH}/$8"
     if [ -f "${_src}" ] ; then
-        # Build a single extended-regex from STRIP_CACHE_TABLES:
-        #   foo%  → ^INSERT INTO `foo<rest>`     (LIKE prefix)
-        #   bar   → ^INSERT INTO `bar`
-        _pat=""
+        # Build a perl regex alternation from STRIP_CACHE_TABLES:
+        #   foo%  → foo[^`]+                       (LIKE prefix on table name)
+        #   bar   → bar
+        # Then join with | for use in the perl state-machine below.
+        _perl_pat=""
         IFS=, read -ra _items <<< "${_strip_tables}"
         for _i in "${_items[@]}" ; do
             _i="${_i// /}"
             [ -z "${_i}" ] && continue
             if [[ "${_i}" == *% ]] ; then
                 _root="${_i%?}"                    # drop trailing %
-                _seg="^INSERT INTO \`${_root}[^\`]*\`"
+                _seg="${_root}[^\`]+"
             else
-                _seg="^INSERT INTO \`${_i}\`"
+                _seg="${_i}"
             fi
-            if [ -z "${_pat}" ] ; then
-                _pat="${_seg}"
+            if [ -z "${_perl_pat}" ] ; then
+                _perl_pat="${_seg}"
             else
-                _pat="${_pat}|${_seg}"
+                _perl_pat="${_perl_pat}|${_seg}"
             fi
         done
 
-        if [ -n "${_pat}" ] ; then
+        if [ -n "${_perl_pat}" ] ; then
             _tmp="${_src}.strip.tmp"
+
+            # Strip transient-table data via a perl state machine. We need a
+            # state machine (not just `grep -v ^INSERT INTO`) because
+            # mariadb-dump's compact mode OMITS the `INSERT INTO` keyword for
+            # tables that contain longblob/longtext columns (e.g. cache_*),
+            # emitting just the trailing VALUES tuples inside a
+            # LOCK TABLES ... UNLOCK TABLES block. Plain single-line grep -v
+            # would silently leave those orphan tuples in the dump and break
+            # any subsequent `restore`. See CLAUDE.md / project memory for the
+            # full bug report.
+            _perl_filter='
+                BEGIN { $in_lock = 0; $in_insert = 0 }
+                # State A: inside a LOCK TABLES block for a strip-table → drop
+                #         every line until the matching UNLOCK TABLES.
+                if ($in_lock) {
+                    if (/^UNLOCK TABLES/) { $in_lock = 0 }
+                    next
+                }
+                # Entering a strip-table LOCK block.
+                if (/^LOCK TABLES `('"${_perl_pat}"')` WRITE/) {
+                    $in_lock = 1; next
+                }
+                # State B: inside a multi-row INSERT INTO `<strip-tbl>`
+                #         VALUES (...),(...);  → drop leading INSERT and
+                #         trailing `(...)` tuples.
+                if ($in_insert) {
+                    if (/^\(/) { next }
+                    $in_insert = 0
+                }
+                # Entering a strip-table INSERT (covers non-longblob tables
+                # like sessions/watchdog/queue/batch/flood/http_client_log).
+                if (/^INSERT INTO `('"${_perl_pat}"')`/) {
+                    $in_insert = 1; next
+                }
+                print
+            '
+
             case "${_src}" in
                 *.gz)
-                    if gunzip -c "${_src}" | grep -v -E "${_pat}" | gzip > "${_tmp}" ; then
+                    if gunzip -c "${_src}" | perl -ne "${_perl_filter}" | gzip > "${_tmp}" ; then
                         mv "${_tmp}" "${_src}"
                     else
                         rm -f "${_tmp}"
@@ -75,7 +113,7 @@ if [ "${_strip_enable}" = "TRUE" ] && [ -n "${_strip_tables}" ] ; then
                     fi
                     ;;
                 *.sql|*)
-                    if grep -v -E "${_pat}" "${_src}" > "${_tmp}" ; then
+                    if perl -ne "${_perl_filter}" "${_src}" > "${_tmp}" ; then
                         mv "${_tmp}" "${_src}"
                     else
                         rm -f "${_tmp}"
