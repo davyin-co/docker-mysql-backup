@@ -18,7 +18,7 @@ services:
   db-backup-rotate-freq:
     container_name: db-backup-rotate-freq
     #image: tiredofit/db-backup
-    image: registry.cn-hangzhou.aliyuncs.com/davyin/mysql-backup-rotate:4.1.17
+    image: registry.cn-hangzhou.aliyuncs.com/davyin/mysql-backup-rotate:4.1.100
     volumes:
       - ./backup:/backup
     #restart: always
@@ -59,7 +59,7 @@ services:
   db-backup-rotate-freq-manual:
     container_name: db-backup-rotate-freq-manual
     #image: tiredofit/db-backup
-    registry.cn-hangzhou.aliyuncs.com/davyin/mysql-backup-rotate:4.1.17
+    registry.cn-hangzhou.aliyuncs.com/davyin/mysql-backup-rotate:4.1.100
     volumes:
       - ./backup-interval-manual:/backup
     #restart: always
