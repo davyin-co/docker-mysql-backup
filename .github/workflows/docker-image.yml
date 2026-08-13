@@ -35,6 +35,8 @@ jobs:
       id: docker_build
       uses: docker/build-push-action@v6
       with:
+        provenance: false
+        sbom: false
         push: true
         context: .
         platforms: linux/amd64,linux/arm64
@@ -52,6 +54,8 @@ jobs:
     - name: Build and push to ALIYUN CR
       uses: docker/build-push-action@v6
       with:
+        provenance: false
+        sbom: false
         push: true
         context: .
         platforms: linux/amd64,linux/arm64
