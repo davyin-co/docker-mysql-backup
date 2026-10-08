@@ -4,14 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目性质
 
-这是一个基于 `tiredofit/db-backup` 基础镜像的**自定义 Docker 镜像构建仓库**，用于在 Docker 容器中执行 MySQL/MariaDB/PostgreSQL 数据库备份，并结合 `rotate-backups` Python 工具实现按时间维度的备份轮转（每天/每周/每月保留若干份）。镜像同时发布到 DockerHub (`davyinsa/mysql-backup-rotate`) 和阿里云容器镜像服务 (`registry.cn-hangzhou.aliyuncs.com/davyin/mysql-backup-rotate`)。
+这是一个**自定义 Docker 镜像构建仓库**，用于在 Docker 容器中执行 MySQL/MariaDB/PostgreSQL 数据库备份，并结合 `rotate-backups` Python 工具实现按时间维度的备份轮转（每天/每周/每月保留若干份）。镜像同时发布到 DockerHub (`davyinsa/mysql-backup-rotate`) 和阿里云容器镜像服务 (`registry.cn-hangzhou.aliyuncs.com/davyin/mysql-backup-rotate`)。
+
+> **上游已停更（重要）**：上游 `tiredofit/db-backup` 于 2026-03-12 EOL，4.x 标签已从 Docker Hub 全部删除（`latest` 被重发布为无 shell 的 scratch 占位镜像），项目迁移更名为 [`nfrastack/db-backup`](https://github.com/nfrastack/db-backup) 并用 Go 重写（5.x）。本仓库目前**冻结在最后的 4.x 基础上**，迁移 5.x 另行立项。
 
 ## 核心架构
 
 ### 镜像层次
-- `Dockerfile` 通过 `ARG VERSION` 选择上游基础镜像版本（如 `3`、`3-3.12.2`、`4.x`、`4.1.9`、`4.1.17`、`latest`），不指定则构建失败。
-- 基础镜像层之上安装 `tzdata`（设置 `Asia/Shanghai`）和 Python venv 中的 `rotate-backups` 包。
-- 注入 `scripts/pre-backup.sh`（备份前钩子）和 `scripts/rotate-dbbackups.sh`（备份后钩子）到 `/assets/scripts/{pre,post}/`。
+- `Dockerfile` 基础镜像冻结为自托管的 `davyinsa/mysql-backup-rotate:4.1.100`（2026-09-09 从最后的 `tiredofit/db-backup:4.1.100` 构建，包含完整 Alpine 4.x 层）。可用 `ARG BASE_IMAGE` / `ARG BASE_VERSION` 覆盖。
+- 冻结基础已包含：`/venv`（含 `rotate-backups`）、`Asia/Shanghai` 时区、钩子脚本。当前构建只重新应用 ENV 默认值、刷新 `scripts/` 钩子脚本并 `chmod +x`（`rotate-dbbackups.sh` 在 git 中是 100644，chmod 层不可省略）。
+- `assets/`（strip-cache patcher）已不参与构建——在 4.1.100 上 patcher 本就 silent no-op，strip-cache 完全由 post-hook 的 perl 过滤器实现。文件保留供 5.x 迁移参考。
 
 ### 备份流程
 上游 `db-backup` 对每个数据库生成一个 dump 文件。`pre-backup.sh` 在 `/backup/<DB_NAME>` 下创建子目录；`rotate-dbbackups.sh` 在 dump 完成后把它移动到对应子目录并在该子目录内执行 `rotate-backups`。**这种"按库分子目录再轮转"的设计是整个项目的核心——必须保留才能让 `rotate-backups` 正确工作。**
@@ -31,15 +33,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 常用命令
 
 ### 构建与发布
-构建必须传入 `VERSION` 参数（与 `.github/workflows/docker-image.yml` 的 matrix 一致）：
+本地构建（不再传 `VERSION`，基础镜像由 Dockerfile 内 ARG 默认值锁定）：
 ```bash
-# 本地构建单个版本
-docker build --build-arg VERSION=4.1.17 -t davyinsa/mysql-backup-rotate:4.1.17 .
+# 本地构建
+docker build -t davyinsa/mysql-backup-rotate:latest .
 # 多平台构建（与 CI 一致）
-docker buildx build --platform linux/amd64,linux/arm64 --build-arg VERSION=4.1.17 -t davyinsa/mysql-backup-rotate:4.1.17 .
+docker buildx build --platform linux/amd64,linux/arm64 -t davyinsa/mysql-backup-rotate:latest .
 ```
 
-CI 触发：push 到 `master`/`main`、每日 `cron: '30 2 * * *'` 自动重建、`workflow_dispatch` 手动触发。
+CI 触发：push 到 `master`/`main`、每周三 05:00 (`cron: "0 5 * * 3"`) 自动重建、`workflow_dispatch` 手动触发。CI 只构建 `latest` 一个标签，推 DockerHub 和阿里云 CR。
 
 ### 本地运行
 每个 compose 文件代表一种部署模式，按需选择：

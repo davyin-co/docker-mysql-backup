@@ -1,5 +1,21 @@
-ARG VERSION
-FROM tiredofit/db-backup:${VERSION}
+# ---------------------------------------------------------------------------
+# Frozen 4.x base
+#
+# Upstream tiredofit/db-backup deleted every 4.x tag from Docker Hub when the
+# project moved to nfrastack/db-backup and was rewritten in Go (a shell-less
+# scratch binary: no apk, no python, no /assets layout). The last working 4.x
+# base is preserved in this repo's own registry as
+# davyinsa/mysql-backup-rotate:4.1.100 (built 2026-09-09 from the final
+# tiredofit/db-backup:4.1.100) and is pinned here.
+#
+# The base already contains /venv with rotate-backups, the Asia/Shanghai
+# timezone and these hook scripts. The layers below only re-apply the ENV
+# defaults and refresh the hook scripts so edits in scripts/ actually ship.
+# (Migration to nfrastack/db-backup 5.x is a separate project.)
+# ---------------------------------------------------------------------------
+ARG BASE_IMAGE=davyinsa/mysql-backup-rotate
+ARG BASE_VERSION=4.1.100
+FROM ${BASE_IMAGE}:${BASE_VERSION}
 ENV ROTATE_OPTIONS="--daily=7 --weekly=4 --monthly=3 --prefer-recent"
 #ENV POST_SCRIPT=/assets/scripts/post/rotate-dbbackups.sh
 ENV CONTAINER_ENABLE_MONITORING=FALSE
@@ -41,30 +57,12 @@ ENV DEFAULT_STRIP_CACHE_TABLES=cache_%,sessions,watchdog,queue,batch,flood,http_
 
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin
 
-# --- Custom hook scripts (existing) ---------------------------------------
+# --- Custom hook scripts ---------------------------------------------------
+# rotate-dbbackups.sh ships the strip-cache perl filter (post-hook) and the
+# per-db move + rotate-backups rotation; pre-backup.sh creates the per-db
+# directory. Both are refreshed from this repo on every build.
+# NOTE: rotate-dbbackups.sh is 100644 in git, so the chmod here is required.
 COPY scripts/rotate-dbbackups.sh /assets/scripts/post/
 COPY scripts/pre-backup.sh /assets/scripts/pre/
-
-# --- Drupal strip-cache patcher (new) -------------------------------------
-# strip-cache-data.sh implements PR nfrastack/container-db-backup#477's
-# {db} placeholder substitution plus an extra layer that expands '%'
-# wildcards in STRIP_CACHE_TABLES into concrete --ignore-table args and
-# prepends schema-only dumps. apply-strip-cache-patch.py idempotently
-# injects a `source` call + post-mysqldump prepend block into the
-# upstream /assets/functions/10-db-backup's backup_mysql() function.
-COPY assets/strip-cache-data.sh /assets/strip-cache-data.sh
-COPY assets/apply-strip-cache-patch.py /tmp/apply-strip-cache-patch.py
-
-## https://www.yaolong.net/article/pip-externally-managed-environment/
-RUN apk add --no-cache tzdata && \
-    cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
-    apk del tzdata && \
-    python3 -m venv /venv && \
-    . /venv/bin/activate && \
-    pip install rotate-backups && \
-    chmod +x /assets/scripts/post/rotate-dbbackups.sh \
-             /assets/scripts/pre/pre-backup.sh \
-             /assets/strip-cache-data.sh && \
-    python3 /tmp/apply-strip-cache-patch.py && \
-    rm -f /tmp/apply-strip-cache-patch.py && \
-    echo "$TIMEZONE" | tee /etc/timezone
+RUN chmod +x /assets/scripts/post/rotate-dbbackups.sh \
+             /assets/scripts/pre/pre-backup.sh
